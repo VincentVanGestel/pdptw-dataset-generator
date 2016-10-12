@@ -50,20 +50,29 @@ import org.apache.commons.math3.random.RandomGenerator;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.ISODateTimeFormat;
 
+import com.github.rinde.rinsim.core.model.ModelBuilder;
 import com.github.rinde.rinsim.core.model.pdp.DefaultPDPModel;
 import com.github.rinde.rinsim.core.model.pdp.Parcel;
 import com.github.rinde.rinsim.core.model.pdp.TimeWindowPolicy.TimeWindowPolicies;
+import com.github.rinde.rinsim.core.model.road.PDPRoadModel;
+import com.github.rinde.rinsim.core.model.road.RoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModelBuilders;
+import com.github.rinde.rinsim.core.model.road.RoadUser;
 import com.github.rinde.rinsim.core.model.time.RealtimeClockController.ClockMode;
 import com.github.rinde.rinsim.core.model.time.TimeModel;
+import com.github.rinde.rinsim.geom.Connection;
+import com.github.rinde.rinsim.geom.Graph;
+import com.github.rinde.rinsim.geom.Graphs;
+import com.github.rinde.rinsim.geom.ListenableGraph;
+import com.github.rinde.rinsim.geom.MultiAttributeData;
 import com.github.rinde.rinsim.geom.Point;
-import com.github.rinde.rinsim.pdptw.common.PDPRoadModel;
 import com.github.rinde.rinsim.pdptw.common.StatsStopConditions;
 import com.github.rinde.rinsim.scenario.Scenario;
 import com.github.rinde.rinsim.scenario.Scenario.ProblemClass;
 import com.github.rinde.rinsim.scenario.ScenarioIO;
 import com.github.rinde.rinsim.scenario.StopConditions;
 import com.github.rinde.rinsim.scenario.generator.Depots;
+import com.github.rinde.rinsim.scenario.generator.Depots.DepotGenerator;
 import com.github.rinde.rinsim.scenario.generator.IntensityFunctions;
 import com.github.rinde.rinsim.scenario.generator.Locations;
 import com.github.rinde.rinsim.scenario.generator.Locations.LocationGenerator;
@@ -74,6 +83,7 @@ import com.github.rinde.rinsim.scenario.generator.TimeSeries;
 import com.github.rinde.rinsim.scenario.generator.TimeSeries.TimeSeriesGenerator;
 import com.github.rinde.rinsim.scenario.generator.TimeWindows.TimeWindowGenerator;
 import com.github.rinde.rinsim.scenario.generator.Vehicles;
+import com.github.rinde.rinsim.scenario.generator.Vehicles.VehicleGenerator;
 import com.github.rinde.rinsim.scenario.measure.Metrics;
 import com.github.rinde.rinsim.scenario.measure.MetricsIO;
 import com.github.rinde.rinsim.scenario.vanlon15.VanLon15ProblemClass;
@@ -83,6 +93,7 @@ import com.github.rinde.rinsim.util.TimeWindow;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.ImmutableRangeMap;
@@ -122,15 +133,18 @@ public final class DatasetGenerator {
   private static final long MS_IN_MIN = 60000L;
   private static final long MS_IN_H = 60 * MS_IN_MIN;
   private static final long TICK_SIZE = 1000L;
-  private static final double VEHICLE_SPEED_KMH = 50d;
+  private static final double VEHICLE_SPEED_KMH = 70d;
+  private static final double VEHICLE_SPEED_MPH = VEHICLE_SPEED_KMH * 1000;
+  private static final double VEHICLE_SPEED_MPS =
+    VEHICLE_SPEED_KMH * 1000 / (60 * 60);
 
   // n x n (km)
   private static final double AREA_WIDTH = 10;
   private static final int ORDERS_P_HOUR = 30;
 
-  private static final long HALF_DIAG_TT = 509117L;
-  private static final long ONE_AND_HALF_DIAG_TT = 1527351L;
-  private static final long TWO_DIAG_TT = 2036468L;
+  private static long HALF_DIAG_TT;// = 509117L;
+  private static long ONE_AND_HALF_DIAG_TT;// = 1527351L;
+  private static long TWO_DIAG_TT;// = 2036468L;
 
   private static final long PICKUP_DURATION = 5 * 60 * 1000L;
   private static final long DELIVERY_DURATION = 5 * 60 * 1000L;
@@ -153,7 +167,54 @@ public final class DatasetGenerator {
   DatasetGenerator(Builder b) {
     builder = b;
 
+    if (!b.graph.isPresent()) {
+      // Plane
+      HALF_DIAG_TT = 509117L;
+      ONE_AND_HALF_DIAG_TT = 1527351L;
+      TWO_DIAG_TT = 2036468L;
+    } else {
+
+      final Graph<MultiAttributeData> graph = b.graph.get();
+      double longestTravelTime = 0d;
+
+      final Point depot = Graphs.getCenterMostPoint(graph);
+      for (final Point p : graph.getNodes()) {
+        final Iterator<Point> path = Graphs
+          .shortestPathEuclideanDistance(graph, depot, p)
+          .iterator();
+
+        double travelTime = 0d;
+        Point prev = path.next();
+        while (path.hasNext()) {
+          final Point cur = path.next();
+          double speed = VEHICLE_SPEED_KMH;
+          // final double speed = 30 * 1000;
+          final Connection<MultiAttributeData> conn =
+            graph.getConnection(prev, cur);
+
+          if (conn.data().get().getMaxSpeed().isPresent()) {
+            speed = Math.min(conn.data().get().getMaxSpeed().get(),
+              VEHICLE_SPEED_KMH);
+          }
+          // conn.getLength => Meter
+          // speed => KMH
+          // travelTime => Millis
+          // m:= m * (60 * 60 * 1000 h)millis / (1000 * km)m
+          travelTime += conn.getLength() * 60 * 60 / speed;
+          prev = cur;
+
+        }
+        if (travelTime > longestTravelTime) {
+          longestTravelTime = travelTime;
+        }
+      }
+
+      HALF_DIAG_TT = (long) longestTravelTime;// = 509117L;
+      ONE_AND_HALF_DIAG_TT = 3 * HALF_DIAG_TT;// = 1527351L;
+      TWO_DIAG_TT = 4 * HALF_DIAG_TT;// = 2036468L;
+    }
     numOrdersPerScale = (int) (ORDERS_P_HOUR * b.scenarioLengthHours);
+
   }
 
   /**
@@ -248,6 +309,7 @@ public final class DatasetGenerator {
               numOrdersPerScale, ImmutableMap.<String, String>builder());
             final ScenarioGenerator gen = createGenerator(
               builder.scenarioLengthMs, urg, scale, tsg2, lg,
+              builder.graph,
               numOrdersPerScale);
 
             jobs.add(ScenarioCreator.create(isg.next(), set, gen));
@@ -537,7 +599,52 @@ public final class DatasetGenerator {
 
   static ScenarioGenerator createGenerator(long scenarioLength,
       long urgency, double scale, TimeSeriesGenerator tsg,
-      LocationGenerator lg, int numOrdersPerScale) {
+      LocationGenerator lg, Optional<Graph> graph,
+      int numOrdersPerScale) {
+    ModelBuilder<? extends RoadModel, ? extends RoadUser> roadModelBuilder;
+    DepotGenerator depotBuilder;
+    VehicleGenerator vehicleBuilder;
+
+    if (!graph.isPresent()) {
+      roadModelBuilder = RoadModelBuilders.plane()
+        .withMaxSpeed(VEHICLE_SPEED_KMH)
+        .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
+        .withDistanceUnit(SI.KILOMETER);
+      depotBuilder = Depots.singleCenteredDepot();
+      vehicleBuilder = Vehicles
+        .builder()
+        .capacities(constant(1))
+        .centeredStartPositions()
+        .creationTimes(constant(-1L))
+        .numberOfVehicles(
+          constant(DoubleMath.roundToInt(VEHICLES_PER_SCALE * scale,
+            RoundingMode.UNNECESSARY)))
+        .speeds(constant(VEHICLE_SPEED_KMH))
+        .timeWindowsAsScenario()
+        .build();
+    } else {
+      final Point startingLocation = Graphs.getCenterMostPoint(graph.get());
+
+      roadModelBuilder =
+        RoadModelBuilders
+          .dynamicGraph((ListenableGraph<?>) graph.get())
+          .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
+          .withDistanceUnit(SI.METER);
+      depotBuilder = Depots.builder()
+        .positions(StochasticSuppliers.constant(startingLocation)).build();
+      vehicleBuilder = Vehicles
+        .builder()
+        .capacities(constant(1))
+        .startPositions(StochasticSuppliers.constant(startingLocation))
+        .creationTimes(constant(-1L))
+        .numberOfVehicles(
+          constant(DoubleMath.roundToInt(VEHICLES_PER_SCALE * scale,
+            RoundingMode.UNNECESSARY)))
+        .speeds(constant(VEHICLE_SPEED_KMH))
+        .timeWindowsAsScenario()
+        .build();
+    }
+
     return ScenarioGenerator.builder()
 
       // global
@@ -561,34 +668,23 @@ public final class DatasetGenerator {
           .deliveryDurations(constant(DELIVERY_DURATION))
           .neededCapacities(constant(0))
           .locations(lg)
+          .withGraph(graph)
           .timeWindows(new CustomTimeWindowGenerator(urgency))
           .build())
 
       // vehicles
       .vehicles(
-        Vehicles
-          .builder()
-          .capacities(constant(1))
-          .centeredStartPositions()
-          .creationTimes(constant(-1L))
-          .numberOfVehicles(
-            constant(DoubleMath.roundToInt(VEHICLES_PER_SCALE * scale,
-              RoundingMode.UNNECESSARY)))
-          .speeds(constant(VEHICLE_SPEED_KMH))
-          .timeWindowsAsScenario()
-          .build())
+        vehicleBuilder)
 
       // depots
-      .depots(Depots.singleCenteredDepot())
+      .depots(depotBuilder)
 
       // models
       .addModel(
         PDPRoadModel.builder(
-          RoadModelBuilders.plane()
-            .withMaxSpeed(VEHICLE_SPEED_KMH)
-            .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
-            .withDistanceUnit(SI.KILOMETER))
+          roadModelBuilder)
           .withAllowVehicleDiversion(true))
+
       .addModel(
         DefaultPDPModel.builder()
           .withTimeWindowPolicy(TimeWindowPolicies.TARDY_ALLOWED))
@@ -641,6 +737,8 @@ public final class DatasetGenerator {
     long scenarioLengthHours;
     long scenarioLengthMs;
 
+    Optional<Graph> graph;
+
     Builder() {
       randomSeed = 0L;
       scaleLevels = ImmutableSet.of(DEFAULT_SCL);
@@ -654,6 +752,7 @@ public final class DatasetGenerator {
       datasetDir = Paths.get("/");
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
       scenarioLengthMs = DEFAULT_SCENARIO_LENGTH;
+      graph = Optional.absent();
     }
 
     /**
@@ -797,6 +896,16 @@ public final class DatasetGenerator {
     static double roundDyn(double d) {
       final double pow = Math.pow(10, DYN_PRECISION);
       return Math.round(d * pow) / pow;
+    }
+
+    /**
+     * Sets the graph to be used for the dataset
+     * @param graph The graph.
+     * @return This, as per the builder pattern.return
+     */
+    public Builder withGraph(Graph graph) {
+      this.graph = Optional.of(graph);
+      return this;
     }
   }
 

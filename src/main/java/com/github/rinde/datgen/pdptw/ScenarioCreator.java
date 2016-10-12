@@ -24,6 +24,7 @@ import org.apache.commons.math3.random.RandomGenerator;
 import org.apache.commons.math3.stat.descriptive.StatisticalSummary;
 
 import com.github.rinde.datgen.pdptw.DatasetGenerator.IdSeed;
+import com.github.rinde.rinsim.core.model.road.PDPRoadModel;
 import com.github.rinde.rinsim.pdptw.common.AddParcelEvent;
 import com.github.rinde.rinsim.scenario.Scenario;
 import com.github.rinde.rinsim.scenario.generator.ScenarioGenerator;
@@ -47,7 +48,7 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
   @Override
   public GeneratedScenario call() throws Exception {
     final RandomGenerator rng = new MersenneTwister(getSeed());
-    final Scenario scen = getGenerator().generate(rng,
+    Scenario scen = getGenerator().generate(rng,
       Long.toString(getId()));
 
     Metrics.checkTimeWindowStrictness(scen);
@@ -76,6 +77,11 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
     if (dynamismBin == null) {
       return null;
     }
+
+    // TODO fix graph serializability
+    scen = Scenario.builder(scen)
+      .removeModelsOfType(PDPRoadModel.Builder.class).build();
+
     return GeneratedScenario.create(scen, getSettings(), getId(), getSeed(),
       dynamismBin,
       dynamism);
