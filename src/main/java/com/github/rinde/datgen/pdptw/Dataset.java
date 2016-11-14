@@ -15,8 +15,6 @@
  */
 package com.github.rinde.datgen.pdptw;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -47,7 +45,7 @@ final class Dataset<T> implements Iterable<T> {
   private Dataset(Comparator<T> comp) {
     comparator = comp;
 
-    data = new TreeMap<Double, RowSortedTable<Long, Double, SortedSet<T>>>();
+    data = new TreeMap<>();
     valuesSet = new HashSet<>();
   }
 
@@ -61,8 +59,8 @@ final class Dataset<T> implements Iterable<T> {
 
   void put(double dyn, long urg, double scl, T value) {
     synchronized (data) {
-      checkArgument(!valuesSet.contains(value), "Value %s already exists.",
-        value);
+      // checkArgument(!valuesSet.contains(value), "Value %s already exists.",
+      // value); // TODO sorry, to heavy for large scenarios
       if (!data.containsKey(dyn)) {
         data.put(dyn, TreeBasedTable.<Long, Double, SortedSet<T>>create());
       }
@@ -70,8 +68,9 @@ final class Dataset<T> implements Iterable<T> {
         data.get(dyn).put(urg, scl, new TreeSet<>(comparator));
       }
 
-      checkArgument(!data.get(dyn).get(urg, scl).contains(value),
-        "At (%s,%s,%s) value %s already exists.", dyn, urg, scl, value);
+      // checkArgument(!data.get(dyn).get(urg, scl).contains(value),
+      // "At (%s,%s,%s) value %s already exists.", dyn, urg, scl, value); //
+      // TODO Same here
       data.get(dyn).get(urg, scl).add(value);
       valuesSet.add(value);
     }

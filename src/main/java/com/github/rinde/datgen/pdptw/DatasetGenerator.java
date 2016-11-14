@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Logger;
 
 import javax.annotation.Nullable;
 import javax.measure.unit.NonSI;
@@ -63,6 +64,7 @@ import com.github.rinde.rinsim.core.model.time.TimeModel;
 import com.github.rinde.rinsim.geom.Connection;
 import com.github.rinde.rinsim.geom.Graph;
 import com.github.rinde.rinsim.geom.Graphs;
+import com.github.rinde.rinsim.geom.Graphs.GraphHeuristics;
 import com.github.rinde.rinsim.geom.ListenableGraph;
 import com.github.rinde.rinsim.geom.MultiAttributeData;
 import com.github.rinde.rinsim.geom.Point;
@@ -73,6 +75,7 @@ import com.github.rinde.rinsim.scenario.ScenarioIO;
 import com.github.rinde.rinsim.scenario.StopConditions;
 import com.github.rinde.rinsim.scenario.generator.Depots;
 import com.github.rinde.rinsim.scenario.generator.Depots.DepotGenerator;
+import com.github.rinde.rinsim.scenario.generator.DynamicSpeeds;
 import com.github.rinde.rinsim.scenario.generator.IntensityFunctions;
 import com.github.rinde.rinsim.scenario.generator.Locations;
 import com.github.rinde.rinsim.scenario.generator.Locations.LocationGenerator;
@@ -94,6 +97,7 @@ import com.google.auto.value.AutoValue;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.ImmutableRangeMap;
@@ -129,7 +133,10 @@ import com.google.common.util.concurrent.MoreExecutors;
  * @author Rinde van Lon
  */
 public final class DatasetGenerator {
-  private static final long THREAD_SLEEP_DURATION = 100L;
+  private static final Logger LOGGER =
+    Logger.getLogger("DatasetGenerator");
+
+  private static final long THREAD_SLEEP_DURATION = 2000L;
   private static final long MS_IN_MIN = 60000L;
   private static final long MS_IN_H = 60 * MS_IN_MIN;
   private static final long TICK_SIZE = 1000L;
@@ -174,13 +181,15 @@ public final class DatasetGenerator {
       TWO_DIAG_TT = 2036468L;
     } else {
 
+      LOGGER.info(" - Calculating Longest Travel Time...");
+
       final Graph<MultiAttributeData> graph = b.graph.get();
       double longestTravelTime = 0d;
 
       final Point depot = Graphs.getCenterMostPoint(graph);
       for (final Point p : graph.getNodes()) {
         final Iterator<Point> path = Graphs
-          .shortestPathEuclideanDistance(graph, depot, p)
+          .shortestPath(graph, depot, p, GraphHeuristics.TIME)
           .iterator();
 
         double travelTime = 0d;
@@ -321,6 +330,7 @@ public final class DatasetGenerator {
     final AtomicLong currentJobs = new AtomicLong(0L);
     final AtomicLong datasetSize = new AtomicLong(0L);
 
+    LOGGER.info(" - Submitting " + jobs.size() + " Jobs");
     for (final ScenarioCreator job : jobs) {
       submitJob(currentJobs, service, job, builder.numInstances, dataset,
         rngMap, datasetSize);
@@ -331,18 +341,22 @@ public final class DatasetGenerator {
       * builder.urgencyLevels.size();
     while (datasetSize.get() < targetSize || dataset.size() < targetSize) {
       try {
+        // LOGGER.info(" - Waiting, current size ==" + dataset.size());
         Thread.sleep(THREAD_SLEEP_DURATION);
       } catch (final InterruptedException e) {
         throw new IllegalStateException(e);
       }
     }
 
+    LOGGER.info(" - Shutdown Service, Awaiting Termination");
     service.shutdown();
     try {
       service.awaitTermination(1L, TimeUnit.HOURS);
     } catch (final InterruptedException e) {
       throw new IllegalStateException(e);
     }
+
+    LOGGER.info(" - Returning dataset");
 
     return dataset;
   }
@@ -457,12 +471,15 @@ public final class DatasetGenerator {
     Futures.addCallback(future, new FutureCallback<GeneratedScenario>() {
       @Override
       public void onSuccess(@Nullable GeneratedScenario result) {
+        LOGGER.info(" - Job finished!");
         currentJobs.decrementAndGet();
         if (result == null) {
           final ScenarioCreator newJob = ScenarioCreator.create(
             rngMap.get(job.getSettings()).next(),
             job.getSettings(),
             job.getGenerator());
+
+          LOGGER.info(" - Job result was NULL, submitting new job");
 
           submitJob(currentJobs, service, newJob, numInstances, dataset,
             rngMap, datasetSize);
@@ -474,6 +491,7 @@ public final class DatasetGenerator {
           res.getSettings().getScale()).size() < numInstances) {
 
           datasetSize.getAndIncrement();
+          LOGGER.info(" - Job Putting dataset...");
           dataset.put(res.getDynamismBin(),
             res.getSettings().getUrgency(),
             res.getSettings().getScale(),
@@ -601,6 +619,8 @@ public final class DatasetGenerator {
       long urgency, double scale, TimeSeriesGenerator tsg,
       LocationGenerator lg, Optional<Graph> graph,
       int numOrdersPerScale) {
+    final ScenarioGenerator.Builder builder = ScenarioGenerator.builder();
+
     ModelBuilder<? extends RoadModel, ? extends RoadUser> roadModelBuilder;
     DepotGenerator depotBuilder;
     VehicleGenerator vehicleBuilder;
@@ -643,10 +663,16 @@ public final class DatasetGenerator {
         .speeds(constant(VEHICLE_SPEED_KMH))
         .timeWindowsAsScenario()
         .build();
+
+      // dynamic speed events
+      builder.dynamicSpeedGenerators(
+        ImmutableList
+          .of(DynamicSpeeds.builder().withGraph(graph.get())
+            .numberOfShockwaves(StochasticSuppliers.constant(4))
+            .build()));
     }
 
-    return ScenarioGenerator.builder()
-
+    builder
       // global
       .addModel(TimeModel.builder()
         .withRealTime()
@@ -687,8 +713,9 @@ public final class DatasetGenerator {
 
       .addModel(
         DefaultPDPModel.builder()
-          .withTimeWindowPolicy(TimeWindowPolicies.TARDY_ALLOWED))
-      .build();
+          .withTimeWindowPolicy(TimeWindowPolicies.TARDY_ALLOWED));
+
+    return builder.build();
   }
 
   /**

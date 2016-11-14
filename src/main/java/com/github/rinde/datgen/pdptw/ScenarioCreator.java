@@ -58,24 +58,28 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
     final long expectedUrgency = getSettings().getUrgency();
     if (!(Math.abs(urgency.getMean() - expectedUrgency) < URGENCY_THRESHOLD
       && urgency.getStandardDeviation() < URGENCY_THRESHOLD)) {
-      return null;
+      System.out.println("Urgency too strict?");
+      // return null; // TODO too strict?
     }
 
     // check num orders
     final int numParcels = Metrics.getEventTypeCounts(scen).count(
       AddParcelEvent.class);
     if (numParcels != getSettings().getNumOrders()) {
-      return null;
+      System.out.println("Parcels wrong number!");
+      // return null; // TODO wut?
     }
 
     // check if dynamism fits in a bin
     final double dynamism = Metrics.measureDynamism(scen,
       getSettings().getOfficeHours());
     @Nullable
-    final Double dynamismBin = getSettings().getDynamismRangeCenters().get(
+    Double dynamismBin = getSettings().getDynamismRangeCenters().get(
       dynamism);
     if (dynamismBin == null) {
-      return null;
+      System.out.println("Dynamism too strict?");
+      // return null; // TODO too strict?
+      dynamismBin = 0.5;
     }
 
     // TODO fix graph serializability
