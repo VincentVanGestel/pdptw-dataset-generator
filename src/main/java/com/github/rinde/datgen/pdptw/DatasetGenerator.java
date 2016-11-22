@@ -55,7 +55,7 @@ import com.github.rinde.rinsim.core.model.ModelBuilder;
 import com.github.rinde.rinsim.core.model.pdp.DefaultPDPModel;
 import com.github.rinde.rinsim.core.model.pdp.Parcel;
 import com.github.rinde.rinsim.core.model.pdp.TimeWindowPolicy.TimeWindowPolicies;
-import com.github.rinde.rinsim.core.model.road.PDPRoadModel;
+import com.github.rinde.rinsim.core.model.road.DynamicGraphRoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModelBuilders;
 import com.github.rinde.rinsim.core.model.road.RoadUser;
@@ -68,6 +68,7 @@ import com.github.rinde.rinsim.geom.Graphs.GraphHeuristics;
 import com.github.rinde.rinsim.geom.ListenableGraph;
 import com.github.rinde.rinsim.geom.MultiAttributeData;
 import com.github.rinde.rinsim.geom.Point;
+import com.github.rinde.rinsim.pdptw.common.PDPDynamicGraphRoadModel;
 import com.github.rinde.rinsim.pdptw.common.StatsStopConditions;
 import com.github.rinde.rinsim.scenario.Scenario;
 import com.github.rinde.rinsim.scenario.Scenario.ProblemClass;
@@ -97,6 +98,7 @@ import com.google.auto.value.AutoValue;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultiset;
@@ -174,7 +176,7 @@ public final class DatasetGenerator {
   DatasetGenerator(Builder b) {
     builder = b;
 
-    if (!b.graph.isPresent()) {
+    if (!b.graphSup.isPresent()) {
       // Plane
       HALF_DIAG_TT = 509117L;
       ONE_AND_HALF_DIAG_TT = 1527351L;
@@ -183,7 +185,8 @@ public final class DatasetGenerator {
 
       LOGGER.info(" - Calculating Longest Travel Time...");
 
-      final Graph<MultiAttributeData> graph = b.graph.get();
+      final Graph<MultiAttributeData> graph =
+        (Graph<MultiAttributeData>) b.graphSup.get().get();
       double longestTravelTime = 0d;
 
       final Point depot = Graphs.getCenterMostPoint(graph);
@@ -318,7 +321,7 @@ public final class DatasetGenerator {
               numOrdersPerScale, ImmutableMap.<String, String>builder());
             final ScenarioGenerator gen = createGenerator(
               builder.scenarioLengthMs, urg, scale, tsg2, lg,
-              builder.graph,
+              builder.graphSup,
               numOrdersPerScale);
 
             jobs.add(ScenarioCreator.create(isg.next(), set, gen));
@@ -617,7 +620,8 @@ public final class DatasetGenerator {
 
   static ScenarioGenerator createGenerator(long scenarioLength,
       long urgency, double scale, TimeSeriesGenerator tsg,
-      LocationGenerator lg, Optional<Graph> graph,
+      LocationGenerator lg,
+      Optional<Supplier<? extends Graph<?>>> graphSup,
       int numOrdersPerScale) {
     final ScenarioGenerator.Builder builder = ScenarioGenerator.builder();
 
@@ -625,7 +629,7 @@ public final class DatasetGenerator {
     DepotGenerator depotBuilder;
     VehicleGenerator vehicleBuilder;
 
-    if (!graph.isPresent()) {
+    if (!graphSup.isPresent()) {
       roadModelBuilder = RoadModelBuilders.plane()
         .withMaxSpeed(VEHICLE_SPEED_KMH)
         .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
@@ -643,11 +647,14 @@ public final class DatasetGenerator {
         .timeWindowsAsScenario()
         .build();
     } else {
-      final Point startingLocation = Graphs.getCenterMostPoint(graph.get());
+      final Point startingLocation =
+        Graphs.getCenterMostPoint(graphSup.get().get());
 
       roadModelBuilder =
         RoadModelBuilders
-          .dynamicGraph((ListenableGraph<?>) graph.get())
+          .dynamicGraph(ListenableGraph.supplier(
+            (Supplier<? extends Graph<MultiAttributeData>>) graphSup.get()))
+          // .dynamicGraph((ListenableGraph<?>) graph.get())
           .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
           .withDistanceUnit(SI.METER);
       depotBuilder = Depots.builder()
@@ -667,7 +674,8 @@ public final class DatasetGenerator {
       // dynamic speed events
       builder.dynamicSpeedGenerators(
         ImmutableList
-          .of(DynamicSpeeds.builder().withGraph(graph.get())
+          .of(DynamicSpeeds.builder()
+            .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
             .numberOfShockwaves(StochasticSuppliers.constant(4))
             .build()));
     }
@@ -694,7 +702,7 @@ public final class DatasetGenerator {
           .deliveryDurations(constant(DELIVERY_DURATION))
           .neededCapacities(constant(0))
           .locations(lg)
-          .withGraph(graph)
+          .withGraph(graphSup)
           .timeWindows(new CustomTimeWindowGenerator(urgency))
           .build())
 
@@ -707,8 +715,8 @@ public final class DatasetGenerator {
 
       // models
       .addModel(
-        PDPRoadModel.builder(
-          roadModelBuilder)
+        PDPDynamicGraphRoadModel.builderForDynamicGraphRm(
+          (ModelBuilder<? extends DynamicGraphRoadModel, ? extends RoadUser>) roadModelBuilder)
           .withAllowVehicleDiversion(true))
 
       .addModel(
@@ -764,7 +772,7 @@ public final class DatasetGenerator {
     long scenarioLengthHours;
     long scenarioLengthMs;
 
-    Optional<Graph> graph;
+    Optional<Supplier<? extends Graph<?>>> graphSup;
 
     Builder() {
       randomSeed = 0L;
@@ -779,7 +787,7 @@ public final class DatasetGenerator {
       datasetDir = Paths.get("/");
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
       scenarioLengthMs = DEFAULT_SCENARIO_LENGTH;
-      graph = Optional.absent();
+      graphSup = Optional.absent();
     }
 
     /**
@@ -926,12 +934,14 @@ public final class DatasetGenerator {
     }
 
     /**
-     * Sets the graph to be used for the dataset
-     * @param graph The graph.
+     * Adds a supplier for graphs
+     * @param supplier The Supplier for the graph
      * @return This, as per the builder pattern.return
      */
-    public Builder withGraph(Graph graph) {
-      this.graph = Optional.of(graph);
+    public Builder withGraphSupplier(
+        Supplier<Graph<MultiAttributeData>> supplier) {
+      this.graphSup =
+        Optional.<Supplier<? extends Graph<?>>>of(supplier);
       return this;
     }
   }

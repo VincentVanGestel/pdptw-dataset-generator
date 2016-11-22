@@ -29,5 +29,15 @@
 			<attribute name="maven.pomderived" value="true"/>
 		</attributes>
 	</classpathentry>
+	<classpathentry combineaccessrules="false" kind="src" path="/osm-to-dot-converter"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/RinLog"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-central"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-cli"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-core"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-event"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-example"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-experiment"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-fsm"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/rinsim-geom"/>
 	<classpathentry kind="output" path="target/classes"/>
 </classpath>
