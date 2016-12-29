@@ -58,7 +58,7 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
     if (!(Math.abs(urgency.getMean() - expectedUrgency) < URGENCY_THRESHOLD
       && urgency.getStandardDeviation() < URGENCY_THRESHOLD)) {
       System.out.println("Urgency too strict?");
-      // return null; // TODO too strict?
+      return null;
     }
 
     // check num orders
@@ -66,24 +66,20 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
       AddParcelEvent.class);
     if (numParcels != getSettings().getNumOrders()) {
       System.out.println("Parcels wrong number!");
-      // return null; // TODO wut?
+      return null;
     }
 
     // check if dynamism fits in a bin
     final double dynamism = Metrics.measureDynamism(scen,
       getSettings().getOfficeHours());
     @Nullable
-    Double dynamismBin = getSettings().getDynamismRangeCenters().get(
+    final Double dynamismBin = getSettings().getDynamismRangeCenters().get(
       dynamism);
     if (dynamismBin == null) {
       System.out.println("Dynamism too strict?");
-      // return null; // TODO too strict?
-      dynamismBin = 0.5;
+      return null;
+      // dynamismBin = 0.5;
     }
-
-    // TODO fix graph serializability
-    // scen = Scenario.builder(scen)
-    // .removeModelsOfType(PDPRoadModel.Builder.class).build();
 
     return GeneratedScenario.create(scen, getSettings(), getId(), getSeed(),
       dynamismBin,

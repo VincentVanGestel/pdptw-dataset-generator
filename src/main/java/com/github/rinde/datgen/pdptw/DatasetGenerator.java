@@ -151,9 +151,9 @@ public final class DatasetGenerator {
   private static final double AREA_WIDTH = 10;
   private static final int ORDERS_P_HOUR = 30;
 
-  private static long HALF_DIAG_TT;// = 509117L;
-  private static long ONE_AND_HALF_DIAG_TT;// = 1527351L;
-  private static long TWO_DIAG_TT;// = 2036468L;
+  private static long halfDiagTT;
+  private static long oneAndHalfDiagTT;
+  private static long twoDiagTT;
 
   private static final long PICKUP_DURATION = 5 * 60 * 1000L;
   private static final long DELIVERY_DURATION = 5 * 60 * 1000L;
@@ -167,6 +167,8 @@ public final class DatasetGenerator {
   // number of digits
   private static final double DYN_PRECISION = 2;
 
+  private static final int NUMBER_OF_SHOCKWAVES = 4;
+
   private static final String TIME_SERIES = "time_series";
 
   final Builder builder;
@@ -178,9 +180,11 @@ public final class DatasetGenerator {
 
     if (!b.graphSup.isPresent()) {
       // Plane
-      HALF_DIAG_TT = 509117L;
-      ONE_AND_HALF_DIAG_TT = 1527351L;
-      TWO_DIAG_TT = 2036468L;
+      // CHECKSTYLE:OFF: MagicNumber
+      halfDiagTT = 509117L;
+      oneAndHalfDiagTT = 1527351L;
+      twoDiagTT = 2036468L;
+      // CHECKSTYLE:ON: MagicNumber
     } else {
 
       LOGGER.info(" - Calculating Longest Travel Time...");
@@ -189,7 +193,7 @@ public final class DatasetGenerator {
         (Graph<MultiAttributeData>) b.graphSup.get().get();
       double longestTravelTime = 0d;
 
-      final Point depot = Graphs.getCenterMostPoint(graph);
+      final Point depot = getCenterMostPoint(graph);
       for (final Point p : graph.getNodes()) {
         final Iterator<Point> path = Graphs
           .shortestPath(graph, depot, p, GraphHeuristics.TIME)
@@ -212,7 +216,9 @@ public final class DatasetGenerator {
           // speed => KMH
           // travelTime => Millis
           // m:= m * (60 * 60 * 1000 h)millis / (1000 * km)m
+          // CHECKSTYLE:OFF: MagicNumber
           travelTime += conn.getLength() * 60 * 60 / speed;
+          // CHECKSTYLE:ON: MagicNumber
           prev = cur;
 
         }
@@ -221,9 +227,11 @@ public final class DatasetGenerator {
         }
       }
 
-      HALF_DIAG_TT = (long) longestTravelTime;// = 509117L;
-      ONE_AND_HALF_DIAG_TT = 3 * HALF_DIAG_TT;// = 1527351L;
-      TWO_DIAG_TT = 4 * HALF_DIAG_TT;// = 2036468L;
+      halfDiagTT = (long) longestTravelTime;
+      // CHECKSTYLE:OFF: MagicNumber
+      oneAndHalfDiagTT = 3 * halfDiagTT;
+      twoDiagTT = 4 * halfDiagTT;
+      // CHECKSTYLE:ON: MagicNumber
     }
     numOrdersPerScale = (int) (ORDERS_P_HOUR * b.scenarioLengthHours);
 
@@ -261,15 +269,15 @@ public final class DatasetGenerator {
           // The office hours is the period in which new orders are accepted,
           // it is defined as [0,officeHoursLength).
           final long officeHoursLength;
-          if (urg < HALF_DIAG_TT) {
+          if (urg < halfDiagTT) {
             officeHoursLength = builder.scenarioLengthMs
-              - TWO_DIAG_TT
+              - twoDiagTT
               - PICKUP_DURATION
               - DELIVERY_DURATION;
           } else {
             officeHoursLength = builder.scenarioLengthMs
               - urg
-              - ONE_AND_HALF_DIAG_TT
+              - oneAndHalfDiagTT
               - PICKUP_DURATION - DELIVERY_DURATION;
           }
 
@@ -550,6 +558,35 @@ public final class DatasetGenerator {
     return letter + "(" + m + "," + std + ")";
   }
 
+  /**
+   * Returns the point closest to the exact center of the area spanned by the
+   * graph.
+   * @param graph The graph.
+   * @return The point of the graph closest to the exact center of the area
+   *         spanned by the graph.
+   */
+  public static Point getCenterMostPoint(Graph<?> graph) {
+    final ImmutableList<Point> extremes = Graphs.getExtremes(graph);
+    final Point exactCenter =
+      Point.divide(Point.add(extremes.get(0), extremes.get(1)), 2d);
+    Point center = graph.getRandomNode(new MersenneTwister());
+    double distance = Point.distance(center, exactCenter);
+
+    for (final Point p : graph.getNodes()) {
+      final double pDistance = Point.distance(p, exactCenter);
+      if (pDistance < distance) {
+        center = p;
+        distance = pDistance;
+      }
+
+      if (center.equals(exactCenter)) {
+        return center;
+      }
+    }
+
+    return center;
+  }
+
   static TimeSeriesGenerator createTimeSeriesGenerator(TimeSeriesType type,
       long officeHoursLength, int numOrders, int numOrdersPerScale,
       ImmutableMap.Builder<String, String> props) {
@@ -648,7 +685,7 @@ public final class DatasetGenerator {
         .build();
     } else {
       final Point startingLocation =
-        Graphs.getCenterMostPoint(graphSup.get().get());
+        getCenterMostPoint(graphSup.get().get());
 
       roadModelBuilder =
         RoadModelBuilders
@@ -656,7 +693,7 @@ public final class DatasetGenerator {
             (Supplier<? extends Graph<MultiAttributeData>>) graphSup.get()))
           // .dynamicGraph((ListenableGraph<?>) graph.get())
           .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
-          .withDistanceUnit(SI.METER);
+          .withDistanceUnit(SI.KILOMETER);
       depotBuilder = Depots.builder()
         .positions(StochasticSuppliers.constant(startingLocation)).build();
       vehicleBuilder = Vehicles
@@ -676,7 +713,8 @@ public final class DatasetGenerator {
         ImmutableList
           .of(DynamicSpeeds.builder()
             .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
-            .numberOfShockwaves(StochasticSuppliers.constant(4))
+            .numberOfShockwaves(
+              StochasticSuppliers.constant(NUMBER_OF_SHOCKWAVES))
             .build()));
     }
 
@@ -934,7 +972,7 @@ public final class DatasetGenerator {
     }
 
     /**
-     * Adds a supplier for graphs
+     * Adds a supplier for graphs.
      * @param supplier The Supplier for the graph
      * @return This, as per the builder pattern.return
      */
