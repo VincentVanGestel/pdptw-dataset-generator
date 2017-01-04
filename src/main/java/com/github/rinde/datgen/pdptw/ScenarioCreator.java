@@ -78,7 +78,6 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
     if (dynamismBin == null) {
       System.out.println("Dynamism too strict?");
       return null;
-      // dynamismBin = 0.5;
     }
 
     return GeneratedScenario.create(scen, getSettings(), getId(), getSeed(),

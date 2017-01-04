@@ -77,6 +77,7 @@ import com.github.rinde.rinsim.scenario.StopConditions;
 import com.github.rinde.rinsim.scenario.generator.Depots;
 import com.github.rinde.rinsim.scenario.generator.Depots.DepotGenerator;
 import com.github.rinde.rinsim.scenario.generator.DynamicSpeeds;
+import com.github.rinde.rinsim.scenario.generator.DynamicSpeeds.DynamicSpeedGenerator;
 import com.github.rinde.rinsim.scenario.generator.IntensityFunctions;
 import com.github.rinde.rinsim.scenario.generator.Locations;
 import com.github.rinde.rinsim.scenario.generator.Locations.LocationGenerator;
@@ -96,6 +97,7 @@ import com.github.rinde.rinsim.util.StochasticSuppliers;
 import com.github.rinde.rinsim.util.TimeWindow;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Charsets;
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
@@ -167,8 +169,6 @@ public final class DatasetGenerator {
   // number of digits
   private static final double DYN_PRECISION = 2;
 
-  private static final int NUMBER_OF_SHOCKWAVES = 4;
-
   private static final String TIME_SERIES = "time_series";
 
   final Builder builder;
@@ -212,12 +212,12 @@ public final class DatasetGenerator {
             speed = Math.min(conn.data().get().getMaxSpeed().get(),
               VEHICLE_SPEED_KMH);
           }
-          // conn.getLength => Meter
+          // conn.getLength => km
           // speed => KMH
           // travelTime => Millis
-          // m:= m * (60 * 60 * 1000 h)millis / (1000 * km)m
+          // m:= km * (60 * 60 * 1000 h)millis / km
           // CHECKSTYLE:OFF: MagicNumber
-          travelTime += conn.getLength() * 60 * 60 / speed;
+          travelTime += conn.getLength() * 60 * 60 * 1000 / speed;
           // CHECKSTYLE:ON: MagicNumber
           prev = cur;
 
@@ -330,7 +330,11 @@ public final class DatasetGenerator {
             final ScenarioGenerator gen = createGenerator(
               builder.scenarioLengthMs, urg, scale, tsg2, lg,
               builder.graphSup,
-              numOrdersPerScale);
+              numOrdersPerScale,
+              builder.numberOfShockwaves,
+              builder.shockwaveExpandingSpeed,
+              builder.shockwaveRecedingSpeed,
+              builder.shockwaveBehaviour);
 
             jobs.add(ScenarioCreator.create(isg.next(), set, gen));
           }
@@ -659,12 +663,16 @@ public final class DatasetGenerator {
       long urgency, double scale, TimeSeriesGenerator tsg,
       LocationGenerator lg,
       Optional<Supplier<? extends Graph<?>>> graphSup,
-      int numOrdersPerScale) {
+      int numOrdersPerScale, int numberOfShockwaves,
+      Optional<StochasticSupplier<Function<Long, Double>>> shockwaveExpandingSpeed,
+      Optional<StochasticSupplier<Function<Long, Double>>> shockwaveRecedingSpeed,
+      Optional<StochasticSupplier<Function<Double, Double>>> shockwaveBehaviour) {
     final ScenarioGenerator.Builder builder = ScenarioGenerator.builder();
 
     ModelBuilder<? extends RoadModel, ? extends RoadUser> roadModelBuilder;
     DepotGenerator depotBuilder;
     VehicleGenerator vehicleBuilder;
+    final DynamicSpeeds.Builder dynamicSpeedsBuilder = DynamicSpeeds.builder();
 
     if (!graphSup.isPresent()) {
       roadModelBuilder = RoadModelBuilders.plane()
@@ -709,13 +717,34 @@ public final class DatasetGenerator {
         .build();
 
       // dynamic speed events
-      builder.dynamicSpeedGenerators(
-        ImmutableList
-          .of(DynamicSpeeds.builder()
-            .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
-            .numberOfShockwaves(
-              StochasticSuppliers.constant(NUMBER_OF_SHOCKWAVES))
-            .build()));
+      dynamicSpeedsBuilder
+        .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
+        .creationTimes(constant(-1L))
+        .randomStartConnections()
+        .shockwaveDurations(constant(scenarioLength / 2))
+        .numberOfShockwaves(
+          StochasticSuppliers.constant(numberOfShockwaves));
+
+      if (shockwaveBehaviour.isPresent()) {
+        dynamicSpeedsBuilder.shockwaveBehaviour(shockwaveBehaviour.get());
+      }
+      if (shockwaveExpandingSpeed.isPresent()) {
+        dynamicSpeedsBuilder
+          .shockwaveExpandingSpeed(shockwaveExpandingSpeed.get());
+      }
+      if (shockwaveRecedingSpeed.isPresent()) {
+        dynamicSpeedsBuilder
+          .shockwaveRecedingSpeed(shockwaveRecedingSpeed.get());
+      }
+
+      ImmutableList<DynamicSpeedGenerator> dsg;
+      if (numberOfShockwaves <= 0) {
+        dsg = (ImmutableList<DynamicSpeedGenerator>) DynamicSpeeds.zeroEvents();
+      } else {
+        dsg = ImmutableList.of(dynamicSpeedsBuilder.build());
+      }
+
+      builder.dynamicSpeedGenerators(dsg);
     }
 
     builder
@@ -776,6 +805,7 @@ public final class DatasetGenerator {
    * @author Rinde van Lon
    */
   public static class Builder {
+
     static final double DYNAMISM_T1 = 0.475;
     static final double DYNAMISM_T2 = 0.575;
     static final double DYNAMISM_T3 = 0.675;
@@ -798,6 +828,7 @@ public final class DatasetGenerator {
           TimeSeriesType.NORMAL)
         .put(Range.closed(DYNAMISM_T3, 1.000), TimeSeriesType.UNIFORM)
         .build();
+    static final int DEFAULT_NUM_SHOCKWAVES = 0;
 
     long randomSeed;
     ImmutableSet<Double> scaleLevels;
@@ -809,6 +840,10 @@ public final class DatasetGenerator {
     Path datasetDir;
     long scenarioLengthHours;
     long scenarioLengthMs;
+    Optional<StochasticSupplier<Function<Double, Double>>> shockwaveBehaviour;
+    Optional<StochasticSupplier<Function<Long, Double>>> shockwaveRecedingSpeed;
+    Optional<StochasticSupplier<Function<Long, Double>>> shockwaveExpandingSpeed;
+    int numberOfShockwaves;
 
     Optional<Supplier<? extends Graph<?>>> graphSup;
 
@@ -826,6 +861,10 @@ public final class DatasetGenerator {
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
       scenarioLengthMs = DEFAULT_SCENARIO_LENGTH;
       graphSup = Optional.absent();
+      shockwaveBehaviour = Optional.absent();
+      shockwaveRecedingSpeed = Optional.absent();
+      shockwaveExpandingSpeed = Optional.absent();
+      numberOfShockwaves = DEFAULT_NUM_SHOCKWAVES;
     }
 
     /**
@@ -945,10 +984,53 @@ public final class DatasetGenerator {
     /**
      * Sets the path where the dataset will be written to.
      * @param string The path.
-     * @return This, as per the builder pattern.return
+     * @return This, as per the builder pattern.
      */
     public Builder setDatasetDir(String string) {
       datasetDir = Paths.get(string);
+      return this;
+    }
+
+    /**
+     * Sets the behaviour for all the to be generated shockwaves.
+     * @param sb The behaviour function.
+     * @return This, as per the builder pattern
+     */
+    public Builder setShockwaveBehaviour(
+        Optional<StochasticSupplier<Function<Double, Double>>> sb) {
+      this.shockwaveBehaviour = sb;
+      return this;
+    }
+
+    /**
+     * Sets the speed for all the to be generated shockwaves to recede with.
+     * @param srs The speed function.
+     * @return This, as per the builder pattern
+     */
+    public Builder setShockwaveRecedingSpeed(
+        Optional<StochasticSupplier<Function<Long, Double>>> srs) {
+      this.shockwaveRecedingSpeed = srs;
+      return this;
+    }
+
+    /**
+     * Sets the speed for all the to be generated shockwaves to expand with.
+     * @param ses The speed function.
+     * @return This, as per the builder pattern
+     */
+    public Builder setShockwaveExpandingSpeed(
+        Optional<StochasticSupplier<Function<Long, Double>>> ses) {
+      this.shockwaveExpandingSpeed = ses;
+      return this;
+    }
+
+    /**
+     * Sets the amount of shockwaves to be generated.
+     * @param numShockwaves The number of desired shockwaves.
+     * @return This, as per the builder pattern
+     */
+    public Builder setNumberOfShockwaves(int numShockwaves) {
+      this.numberOfShockwaves = numShockwaves;
       return this;
     }
 
