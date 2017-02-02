@@ -63,8 +63,8 @@ import com.github.rinde.rinsim.core.model.time.RealtimeClockController.ClockMode
 import com.github.rinde.rinsim.core.model.time.TimeModel;
 import com.github.rinde.rinsim.geom.Connection;
 import com.github.rinde.rinsim.geom.Graph;
+import com.github.rinde.rinsim.geom.GraphHeuristics;
 import com.github.rinde.rinsim.geom.Graphs;
-import com.github.rinde.rinsim.geom.Graphs.GraphHeuristics;
 import com.github.rinde.rinsim.geom.ListenableGraph;
 import com.github.rinde.rinsim.geom.MultiAttributeData;
 import com.github.rinde.rinsim.geom.Point;
@@ -196,7 +196,8 @@ public final class DatasetGenerator {
       final Point depot = getCenterMostPoint(graph);
       for (final Point p : graph.getNodes()) {
         final Iterator<Point> path = Graphs
-          .shortestPath(graph, depot, p, GraphHeuristics.TIME)
+          .shortestPath(graph, depot, p,
+            GraphHeuristics.time(VEHICLE_SPEED_KMH))
           .iterator();
 
         double travelTime = 0d;
@@ -315,7 +316,8 @@ public final class DatasetGenerator {
             .setProperties(props.build())
             .build();
 
-          final IdSeedGenerator isg = new IdSeedGenerator(rng.nextLong());
+          final IdSeedGenerator isg =
+            new IdSeedGenerator(rng.nextLong(), builder.startID);
           rngMap.put(set, isg);
 
           for (int i = 0; i < reps; i++) {
@@ -836,6 +838,7 @@ public final class DatasetGenerator {
     ImmutableRangeMap<Double, Double> dynamismRangeMap;
     ImmutableSet<Long> urgencyLevels;
     int numInstances;
+    int startID;
     int numThreads;
     Path datasetDir;
     long scenarioLengthHours;
@@ -961,11 +964,13 @@ public final class DatasetGenerator {
      * Sets the number of instances that should be generated for each
      * combination of dynamism, urgency and scale.
      * @param num The number of instances, must be a positive number.
+     * @param startingID The instance ID to start with.
      * @return This, as per the builder pattern.
      */
-    public Builder setNumInstances(int num) {
+    public Builder setNumInstances(int num, int startingID) {
       checkArgument(num > 0);
       numInstances = num;
+      startID = startingID;
       return this;
     }
 
@@ -1073,10 +1078,10 @@ public final class DatasetGenerator {
     Object mutex;
     Set<Long> used;
 
-    IdSeedGenerator(long seed) {
+    IdSeedGenerator(long startID, long seed) {
       mutex = new Object();
       rng = new MersenneTwister(seed);
-      id = 0L;
+      id = startID;
       used = new HashSet<>();
     }
 

@@ -84,7 +84,7 @@ public class DatasetGeneratorTest {
       .setDynamismLevels(asList(.1, .5, .6, .7))
       .setUrgencyLevels(asList(15L))
       .setScaleLevels(asList(1d))
-      .setNumInstances(1)
+      .setNumInstances(1, 0)
       .setDatasetDir("files/test/dataset/")
       // .setNumThreads(1)
       .build();
