@@ -317,7 +317,7 @@ public final class DatasetGenerator {
             .build();
 
           final IdSeedGenerator isg =
-            new IdSeedGenerator(rng.nextLong(), builder.startID);
+            new IdSeedGenerator(rng.nextLong());
           rngMap.put(set, isg);
 
           for (int i = 0; i < reps; i++) {
@@ -393,7 +393,7 @@ public final class DatasetGenerator {
       final Scenario finalScenario = Scenario.builder(pc)
         .copyProperties(gs.getScenario())
         .problemClass(pc)
-        .instanceId(Integer.toString(cur))
+        .instanceId(Integer.toString(cur + builder.startID))
         .build();
 
       if (builder.datasetDir.getNameCount() > 0) {
@@ -816,6 +816,7 @@ public final class DatasetGenerator {
     static final long DEFAULT_URG = 20L;
     static final double DEFAULT_SCL = 1d;
     static final int DEFAULT_NUM_INSTANCES = 1;
+    static final int DEFAULT_START_ID = 0;
     static final long DEFAULT_SCENARIO_HOURS = 4L;
     static final long DEFAULT_SCENARIO_LENGTH =
       DEFAULT_SCENARIO_HOURS * MS_IN_H;
@@ -859,6 +860,7 @@ public final class DatasetGenerator {
         ImmutableRangeMap.of(createDynRange(DEFAULT_DYN), DEFAULT_DYN);
       urgencyLevels = ImmutableSet.of(DEFAULT_URG);
       numInstances = DEFAULT_NUM_INSTANCES;
+      startID = DEFAULT_START_ID;
       numThreads = Runtime.getRuntime().availableProcessors();
       datasetDir = Paths.get("/");
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
@@ -1078,15 +1080,16 @@ public final class DatasetGenerator {
     Object mutex;
     Set<Long> used;
 
-    IdSeedGenerator(long startID, long seed) {
+    IdSeedGenerator(long seed) {
       mutex = new Object();
       rng = new MersenneTwister(seed);
-      id = startID;
+      id = 0;
       used = new HashSet<>();
     }
 
     IdSeed next() {
       synchronized (mutex) {
+
         return IdSeed.create(id++, nextUnique());
       }
     }
