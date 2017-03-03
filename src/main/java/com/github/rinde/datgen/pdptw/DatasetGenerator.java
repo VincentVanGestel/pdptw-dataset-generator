@@ -777,8 +777,8 @@ public final class DatasetGenerator {
         dsg = (ImmutableList<DynamicSpeedGenerator>) DynamicSpeeds.zeroEvents();
       } else {
         final List<DynamicSpeedGenerator> dsgList = new ArrayList<>();
-        for (final DynamicSpeeds.Builder dynamicSpeedsBuilder : dynamicSpeedsBuilders) {
-          dsgList.add(dynamicSpeedsBuilder.build());
+        for (final DynamicSpeeds.Builder dsb : dynamicSpeedsBuilders) {
+          dsgList.add(dsb.build());
         }
         dsg = ImmutableList.copyOf(dsgList);
       }
