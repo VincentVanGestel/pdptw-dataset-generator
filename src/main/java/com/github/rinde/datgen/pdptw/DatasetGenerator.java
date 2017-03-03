@@ -61,9 +61,7 @@ import com.github.rinde.rinsim.core.model.road.RoadModelBuilders;
 import com.github.rinde.rinsim.core.model.road.RoadUser;
 import com.github.rinde.rinsim.core.model.time.RealtimeClockController.ClockMode;
 import com.github.rinde.rinsim.core.model.time.TimeModel;
-import com.github.rinde.rinsim.geom.Connection;
 import com.github.rinde.rinsim.geom.Graph;
-import com.github.rinde.rinsim.geom.GraphHeuristics;
 import com.github.rinde.rinsim.geom.Graphs;
 import com.github.rinde.rinsim.geom.ListenableGraph;
 import com.github.rinde.rinsim.geom.MultiAttributeData;
@@ -100,6 +98,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -186,7 +185,7 @@ public final class DatasetGenerator {
       twoDiagTT = 2036468L;
       // CHECKSTYLE:ON: MagicNumber
     } else {
-
+      /*
       LOGGER.info(" - Calculating Longest Travel Time...");
 
       final Graph<MultiAttributeData> graph =
@@ -197,7 +196,7 @@ public final class DatasetGenerator {
       for (final Point p : graph.getNodes()) {
         final Iterator<Point> path = Graphs
           .shortestPath(graph, depot, p,
-            GraphHeuristics.time(VEHICLE_SPEED_KMH))
+            GeomHeuristics.time(VEHICLE_SPEED_KMH))
           .iterator();
 
         double travelTime = 0d;
@@ -229,7 +228,10 @@ public final class DatasetGenerator {
       }
 
       halfDiagTT = (long) longestTravelTime;
+      LOGGER.info(" - Longest Travel Time: " + longestTravelTime);
+      */
       // CHECKSTYLE:OFF: MagicNumber
+      halfDiagTT = (long) 1092785.765861273;
       oneAndHalfDiagTT = 3 * halfDiagTT;
       twoDiagTT = 4 * halfDiagTT;
       // CHECKSTYLE:ON: MagicNumber
@@ -300,8 +302,8 @@ public final class DatasetGenerator {
             rset.add(r);
           }
 
-          createTimeSeriesGenerator(dynLevel.getKey(), officeHoursLength,
-            numOrders, numOrdersPerScale, props);
+          // createTimeSeriesGenerator(dynLevel.getKey(), officeHoursLength,
+          // numOrders, numOrdersPerScale, props);
 
           final GeneratorSettings set = GeneratorSettings
             .builder()
@@ -326,17 +328,30 @@ public final class DatasetGenerator {
               .max(AREA_WIDTH)
               .buildUniform();
 
-            final TimeSeriesGenerator tsg2 = createTimeSeriesGenerator(
-              dynLevel.getKey(), officeHoursLength, numOrders,
-              numOrdersPerScale, ImmutableMap.<String, String>builder());
+            final TimeSeriesGenerator tsg2 =
+              TimeSeries.filter(createTimeSeriesGenerator(
+                dynLevel.getKey(), officeHoursLength, numOrders,
+                numOrdersPerScale, ImmutableMap.<String, String>builder()),
+                new Predicate<List<Double>>() {
+                  @Override
+                  public boolean apply(@Nullable List<Double> input) {
+                    final double dynamism =
+                      Metrics.measureDynamism(verifyNotNull(input),
+                        builder.scenarioLengthMs);
+                    return set.getDynamismRangeCenters().get(
+                      dynamism) != null;
+                  }
+                });
             final ScenarioGenerator gen = createGenerator(
               builder.scenarioLengthMs, urg, scale, tsg2, lg,
               builder.graphSup,
               numOrdersPerScale,
               builder.numberOfShockwaves,
-              builder.shockwaveExpandingSpeed,
-              builder.shockwaveRecedingSpeed,
-              builder.shockwaveBehaviour);
+              builder.shockwaveExpandingSpeeds,
+              builder.shockwaveRecedingSpeeds,
+              builder.shockwaveBehaviours,
+              builder.shockwaveDurations,
+              builder.shockwaveCreationTimes);
 
             jobs.add(ScenarioCreator.create(isg.next(), set, gen));
           }
@@ -665,16 +680,21 @@ public final class DatasetGenerator {
       long urgency, double scale, TimeSeriesGenerator tsg,
       LocationGenerator lg,
       Optional<Supplier<? extends Graph<?>>> graphSup,
-      int numOrdersPerScale, int numberOfShockwaves,
-      Optional<StochasticSupplier<Function<Long, Double>>> shockwaveExpandingSpeed,
-      Optional<StochasticSupplier<Function<Long, Double>>> shockwaveRecedingSpeed,
-      Optional<StochasticSupplier<Function<Double, Double>>> shockwaveBehaviour) {
+      int numOrdersPerScale, List<Integer> numberOfShockwaves,
+      Optional<List<StochasticSupplier<Function<Long, Double>>>> shockwaveExpandingSpeed,
+      Optional<List<StochasticSupplier<Function<Long, Double>>>> shockwaveRecedingSpeed,
+      Optional<List<StochasticSupplier<Function<Double, Double>>>> shockwaveBehaviour,
+      Optional<List<StochasticSupplier<Long>>> shockwaveDurations,
+      Optional<List<StochasticSupplier<Long>>> shockwaveCreationTimes) {
     final ScenarioGenerator.Builder builder = ScenarioGenerator.builder();
 
     ModelBuilder<? extends RoadModel, ? extends RoadUser> roadModelBuilder;
     DepotGenerator depotBuilder;
     VehicleGenerator vehicleBuilder;
-    final DynamicSpeeds.Builder dynamicSpeedsBuilder = DynamicSpeeds.builder();
+    final List<DynamicSpeeds.Builder> dynamicSpeedsBuilders = new ArrayList<>();
+    for (int i = 0; i < numberOfShockwaves.size(); i++) {
+      dynamicSpeedsBuilders.add(DynamicSpeeds.builder());
+    }
 
     if (!graphSup.isPresent()) {
       roadModelBuilder = RoadModelBuilders.plane()
@@ -719,33 +739,49 @@ public final class DatasetGenerator {
         .build();
 
       // dynamic speed events
-      dynamicSpeedsBuilder
-        .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
-        .creationTimes(constant(-1L))
-        .randomStartConnections()
-        .shockwaveDurations(constant(scenarioLength / 2))
-        .numberOfShockwaves(
-          StochasticSuppliers.constant(numberOfShockwaves));
+      for (int i = 0; i < dynamicSpeedsBuilders.size(); i++) {
+        final DynamicSpeeds.Builder dynamicSpeedsBuilder =
+          dynamicSpeedsBuilders.get(i);
 
-      if (shockwaveBehaviour.isPresent()) {
-        dynamicSpeedsBuilder.shockwaveBehaviour(shockwaveBehaviour.get());
-      }
-      if (shockwaveExpandingSpeed.isPresent()) {
         dynamicSpeedsBuilder
-          .shockwaveExpandingSpeed(shockwaveExpandingSpeed.get());
-      }
-      if (shockwaveRecedingSpeed.isPresent()) {
-        dynamicSpeedsBuilder
-          .shockwaveRecedingSpeed(shockwaveRecedingSpeed.get());
+          .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
+          .creationTimes(constant(-1L))
+          .randomStartConnections()
+          .shockwaveDurations(constant(scenarioLength / 2))
+          .numberOfShockwaves(
+            StochasticSuppliers.constant(numberOfShockwaves.get(i)));
+        if (shockwaveDurations.isPresent()) {
+          dynamicSpeedsBuilder
+            .shockwaveDurations(shockwaveDurations.get().get(i));
+        }
+        if (shockwaveBehaviour.isPresent()) {
+          dynamicSpeedsBuilder
+            .shockwaveBehaviour(shockwaveBehaviour.get().get(i));
+        }
+        if (shockwaveExpandingSpeed.isPresent()) {
+          dynamicSpeedsBuilder
+            .shockwaveExpandingSpeed(shockwaveExpandingSpeed.get().get(i));
+        }
+        if (shockwaveRecedingSpeed.isPresent()) {
+          dynamicSpeedsBuilder
+            .shockwaveRecedingSpeed(shockwaveRecedingSpeed.get().get(i));
+        }
+        if (shockwaveCreationTimes.isPresent()) {
+          dynamicSpeedsBuilder
+            .creationTimes(shockwaveCreationTimes.get().get(i));
+        }
       }
 
       ImmutableList<DynamicSpeedGenerator> dsg;
-      if (numberOfShockwaves <= 0) {
+      if (numberOfShockwaves.isEmpty()) {
         dsg = (ImmutableList<DynamicSpeedGenerator>) DynamicSpeeds.zeroEvents();
       } else {
-        dsg = ImmutableList.of(dynamicSpeedsBuilder.build());
+        final List<DynamicSpeedGenerator> dsgList = new ArrayList<>();
+        for (final DynamicSpeeds.Builder dynamicSpeedsBuilder : dynamicSpeedsBuilders) {
+          dsgList.add(dynamicSpeedsBuilder.build());
+        }
+        dsg = ImmutableList.copyOf(dsgList);
       }
-
       builder.dynamicSpeedGenerators(dsg);
     }
 
@@ -831,7 +867,8 @@ public final class DatasetGenerator {
           TimeSeriesType.NORMAL)
         .put(Range.closed(DYNAMISM_T3, 1.000), TimeSeriesType.UNIFORM)
         .build();
-    static final int DEFAULT_NUM_SHOCKWAVES = 0;
+    static final List<Integer> DEFAULT_NUM_SHOCKWAVES =
+      new ArrayList<>();
 
     long randomSeed;
     ImmutableSet<Double> scaleLevels;
@@ -844,10 +881,12 @@ public final class DatasetGenerator {
     Path datasetDir;
     long scenarioLengthHours;
     long scenarioLengthMs;
-    Optional<StochasticSupplier<Function<Double, Double>>> shockwaveBehaviour;
-    Optional<StochasticSupplier<Function<Long, Double>>> shockwaveRecedingSpeed;
-    Optional<StochasticSupplier<Function<Long, Double>>> shockwaveExpandingSpeed;
-    int numberOfShockwaves;
+    Optional<List<StochasticSupplier<Function<Double, Double>>>> shockwaveBehaviours;
+    Optional<List<StochasticSupplier<Function<Long, Double>>>> shockwaveRecedingSpeeds;
+    Optional<List<StochasticSupplier<Function<Long, Double>>>> shockwaveExpandingSpeeds;
+    Optional<List<StochasticSupplier<Long>>> shockwaveDurations;
+    Optional<List<StochasticSupplier<Long>>> shockwaveCreationTimes;
+    List<Integer> numberOfShockwaves;
 
     Optional<Supplier<? extends Graph<?>>> graphSup;
 
@@ -866,9 +905,11 @@ public final class DatasetGenerator {
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
       scenarioLengthMs = DEFAULT_SCENARIO_LENGTH;
       graphSup = Optional.absent();
-      shockwaveBehaviour = Optional.absent();
-      shockwaveRecedingSpeed = Optional.absent();
-      shockwaveExpandingSpeed = Optional.absent();
+      shockwaveBehaviours = Optional.absent();
+      shockwaveRecedingSpeeds = Optional.absent();
+      shockwaveExpandingSpeeds = Optional.absent();
+      shockwaveDurations = Optional.absent();
+      shockwaveCreationTimes = Optional.absent();
       numberOfShockwaves = DEFAULT_NUM_SHOCKWAVES;
     }
 
@@ -1004,8 +1045,8 @@ public final class DatasetGenerator {
      * @return This, as per the builder pattern
      */
     public Builder setShockwaveBehaviour(
-        Optional<StochasticSupplier<Function<Double, Double>>> sb) {
-      this.shockwaveBehaviour = sb;
+        Optional<List<StochasticSupplier<Function<Double, Double>>>> sb) {
+      this.shockwaveBehaviours = sb;
       return this;
     }
 
@@ -1015,8 +1056,8 @@ public final class DatasetGenerator {
      * @return This, as per the builder pattern
      */
     public Builder setShockwaveRecedingSpeed(
-        Optional<StochasticSupplier<Function<Long, Double>>> srs) {
-      this.shockwaveRecedingSpeed = srs;
+        Optional<List<StochasticSupplier<Function<Long, Double>>>> srs) {
+      this.shockwaveRecedingSpeeds = srs;
       return this;
     }
 
@@ -1026,8 +1067,20 @@ public final class DatasetGenerator {
      * @return This, as per the builder pattern
      */
     public Builder setShockwaveExpandingSpeed(
-        Optional<StochasticSupplier<Function<Long, Double>>> ses) {
-      this.shockwaveExpandingSpeed = ses;
+        Optional<List<StochasticSupplier<Function<Long, Double>>>> ses) {
+      this.shockwaveExpandingSpeeds = ses;
+      return this;
+    }
+
+    public Builder setShockwaveDuration(
+        Optional<List<StochasticSupplier<Long>>> sd) {
+      this.shockwaveDurations = sd;
+      return this;
+    }
+
+    public Builder setShockwaveCreationTimes(
+        Optional<List<StochasticSupplier<Long>>> sct) {
+      this.shockwaveCreationTimes = sct;
       return this;
     }
 
@@ -1036,7 +1089,7 @@ public final class DatasetGenerator {
      * @param numShockwaves The number of desired shockwaves.
      * @return This, as per the builder pattern
      */
-    public Builder setNumberOfShockwaves(int numShockwaves) {
+    public Builder setNumberOfShockwaves(List<Integer> numShockwaves) {
       this.numberOfShockwaves = numShockwaves;
       return this;
     }
