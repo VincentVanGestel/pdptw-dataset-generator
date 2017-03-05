@@ -56,6 +56,7 @@ import com.github.rinde.rinsim.core.model.pdp.DefaultPDPModel;
 import com.github.rinde.rinsim.core.model.pdp.Parcel;
 import com.github.rinde.rinsim.core.model.pdp.TimeWindowPolicy.TimeWindowPolicies;
 import com.github.rinde.rinsim.core.model.road.DynamicGraphRoadModel;
+import com.github.rinde.rinsim.core.model.road.GraphRoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModelBuilders;
 import com.github.rinde.rinsim.core.model.road.RoadUser;
@@ -187,18 +188,18 @@ public final class DatasetGenerator {
     } else {
       /*
       LOGGER.info(" - Calculating Longest Travel Time...");
-
+      
       final Graph<MultiAttributeData> graph =
         (Graph<MultiAttributeData>) b.graphSup.get().get();
       double longestTravelTime = 0d;
-
+      
       final Point depot = getCenterMostPoint(graph);
       for (final Point p : graph.getNodes()) {
         final Iterator<Point> path = Graphs
           .shortestPath(graph, depot, p,
             GeomHeuristics.time(VEHICLE_SPEED_KMH))
           .iterator();
-
+      
         double travelTime = 0d;
         Point prev = path.next();
         while (path.hasNext()) {
@@ -207,7 +208,7 @@ public final class DatasetGenerator {
           // final double speed = 30 * 1000;
           final Connection<MultiAttributeData> conn =
             graph.getConnection(prev, cur);
-
+      
           if (conn.data().get().getMaxSpeed().isPresent()) {
             speed = Math.min(conn.data().get().getMaxSpeed().get(),
               VEHICLE_SPEED_KMH);
@@ -220,13 +221,13 @@ public final class DatasetGenerator {
           travelTime += conn.getLength() * 60 * 60 * 1000 / speed;
           // CHECKSTYLE:ON: MagicNumber
           prev = cur;
-
+      
         }
         if (travelTime > longestTravelTime) {
           longestTravelTime = travelTime;
         }
       }
-
+      
       halfDiagTT = (long) longestTravelTime;
       LOGGER.info(" - Longest Travel Time: " + longestTravelTime);
       */
@@ -333,16 +334,10 @@ public final class DatasetGenerator {
                 dynLevel.getKey(), officeHoursLength, numOrders,
                 numOrdersPerScale, ImmutableMap.<String, String>builder());
             final ScenarioGenerator gen = createGenerator(
-              builder.scenarioLengthMs, officeHoursLength, urg, scale, tsg2,
+              officeHoursLength, urg, scale, tsg2,
               set.getDynamismRangeCenters(), lg,
-              builder.graphSup,
-              numOrdersPerScale,
-              builder.numberOfShockwaves,
-              builder.shockwaveExpandingSpeeds,
-              builder.shockwaveRecedingSpeeds,
-              builder.shockwaveBehaviours,
-              builder.shockwaveDurations,
-              builder.shockwaveCreationTimes);
+              builder,
+              numOrdersPerScale);
 
             jobs.add(ScenarioCreator.create(isg.next(), set, gen));
           }
@@ -667,29 +662,22 @@ public final class DatasetGenerator {
     throw new IllegalStateException();
   }
 
-  static ScenarioGenerator createGenerator(final long scenarioLength,
-      final long officeHours,
+  static ScenarioGenerator createGenerator(final long officeHours,
       long urgency, double scale, TimeSeriesGenerator tsg,
       final ImmutableRangeMap<Double, Double> dynamismRangeCenters,
-      LocationGenerator lg,
-      Optional<Supplier<? extends Graph<?>>> graphSup,
-      int numOrdersPerScale, List<Integer> numberOfShockwaves,
-      Optional<List<StochasticSupplier<Function<Long, Double>>>> shockwaveExpandingSpeed,
-      Optional<List<StochasticSupplier<Function<Long, Double>>>> shockwaveRecedingSpeed,
-      Optional<List<StochasticSupplier<Function<Double, Double>>>> shockwaveBehaviour,
-      Optional<List<StochasticSupplier<Long>>> shockwaveDurations,
-      Optional<List<StochasticSupplier<Long>>> shockwaveCreationTimes) {
+      LocationGenerator lg, Builder b,
+      int numOrdersPerScale) {
     final ScenarioGenerator.Builder builder = ScenarioGenerator.builder();
 
     ModelBuilder<? extends RoadModel, ? extends RoadUser> roadModelBuilder;
     DepotGenerator depotBuilder;
     VehicleGenerator vehicleBuilder;
     final List<DynamicSpeeds.Builder> dynamicSpeedsBuilders = new ArrayList<>();
-    for (int i = 0; i < numberOfShockwaves.size(); i++) {
+    for (int i = 0; i < b.numberOfShockwaves.size(); i++) {
       dynamicSpeedsBuilders.add(DynamicSpeeds.builder());
     }
 
-    if (!graphSup.isPresent()) {
+    if (!b.graphSup.isPresent()) {
       roadModelBuilder = RoadModelBuilders.plane()
         .withMaxSpeed(VEHICLE_SPEED_KMH)
         .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
@@ -708,15 +696,21 @@ public final class DatasetGenerator {
         .build();
     } else {
       final Point startingLocation =
-        getCenterMostPoint(graphSup.get().get());
+        getCenterMostPoint(b.graphSup.get().get());
+      if (b.cachedRoadModel) {
+        roadModelBuilder =
+          RoadModelBuilders.cachedGraph(b.graphSup.get())
+            .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
+            .withDistanceUnit(SI.KILOMETER);
+      } else {
+        roadModelBuilder =
+          RoadModelBuilders
+            .dynamicGraph(ListenableGraph.supplier(
+              (Supplier<? extends Graph<MultiAttributeData>>) b.graphSup.get()))
+            .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
+            .withDistanceUnit(SI.KILOMETER);
+      }
 
-      roadModelBuilder =
-        RoadModelBuilders
-          .dynamicGraph(ListenableGraph.supplier(
-            (Supplier<? extends Graph<MultiAttributeData>>) graphSup.get()))
-          // .dynamicGraph((ListenableGraph<?>) graph.get())
-          .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
-          .withDistanceUnit(SI.KILOMETER);
       depotBuilder = Depots.builder()
         .positions(StochasticSuppliers.constant(startingLocation)).build();
       vehicleBuilder = Vehicles
@@ -737,36 +731,36 @@ public final class DatasetGenerator {
           dynamicSpeedsBuilders.get(i);
 
         dynamicSpeedsBuilder
-          .withGraph((Graph<MultiAttributeData>) graphSup.get().get())
+          .withGraph((Graph<MultiAttributeData>) b.graphSup.get().get())
           .creationTimes(constant(-1L))
           .randomStartConnections()
-          .shockwaveDurations(constant(scenarioLength / 2))
+          .shockwaveDurations(constant(b.scenarioLengthMs / 2))
           .numberOfShockwaves(
-            StochasticSuppliers.constant(numberOfShockwaves.get(i)));
-        if (shockwaveDurations.isPresent()) {
+            StochasticSuppliers.constant(b.numberOfShockwaves.get(i)));
+        if (b.shockwaveDurations.isPresent()) {
           dynamicSpeedsBuilder
-            .shockwaveDurations(shockwaveDurations.get().get(i));
+            .shockwaveDurations(b.shockwaveDurations.get().get(i));
         }
-        if (shockwaveBehaviour.isPresent()) {
+        if (b.shockwaveBehaviours.isPresent()) {
           dynamicSpeedsBuilder
-            .shockwaveBehaviour(shockwaveBehaviour.get().get(i));
+            .shockwaveBehaviour(b.shockwaveBehaviours.get().get(i));
         }
-        if (shockwaveExpandingSpeed.isPresent()) {
+        if (b.shockwaveExpandingSpeeds.isPresent()) {
           dynamicSpeedsBuilder
-            .shockwaveExpandingSpeed(shockwaveExpandingSpeed.get().get(i));
+            .shockwaveExpandingSpeed(b.shockwaveExpandingSpeeds.get().get(i));
         }
-        if (shockwaveRecedingSpeed.isPresent()) {
+        if (b.shockwaveRecedingSpeeds.isPresent()) {
           dynamicSpeedsBuilder
-            .shockwaveRecedingSpeed(shockwaveRecedingSpeed.get().get(i));
+            .shockwaveRecedingSpeed(b.shockwaveRecedingSpeeds.get().get(i));
         }
-        if (shockwaveCreationTimes.isPresent()) {
+        if (b.shockwaveCreationTimes.isPresent()) {
           dynamicSpeedsBuilder
-            .creationTimes(shockwaveCreationTimes.get().get(i));
+            .creationTimes(b.shockwaveCreationTimes.get().get(i));
         }
       }
 
       ImmutableList<DynamicSpeedGenerator> dsg;
-      if (numberOfShockwaves.isEmpty()) {
+      if (b.numberOfShockwaves.isEmpty()) {
         dsg = (ImmutableList<DynamicSpeedGenerator>) DynamicSpeeds.zeroEvents();
       } else {
         final List<DynamicSpeedGenerator> dsgList = new ArrayList<>();
@@ -785,7 +779,7 @@ public final class DatasetGenerator {
         .withStartInClockMode(ClockMode.SIMULATED)
         .withTickLength(TICK_SIZE)
         .withTimeUnit(SI.MILLI(SI.SECOND)))
-      .scenarioLength(scenarioLength)
+      .scenarioLength(b.scenarioLengthMs)
       .setStopCondition(StopConditions.and(
         StatsStopConditions.vehiclesDoneAndBackAtDepot(),
         StatsStopConditions.timeOutEvent()))
@@ -816,7 +810,7 @@ public final class DatasetGenerator {
           .deliveryDurations(constant(DELIVERY_DURATION))
           .neededCapacities(constant(0))
           .locations(lg)
-          .withGraph(graphSup)
+          .withGraph(b.graphSup)
           .timeWindows(new CustomTimeWindowGenerator(urgency))
           .build())
 
@@ -825,14 +819,21 @@ public final class DatasetGenerator {
         vehicleBuilder)
 
       // depots
-      .depots(depotBuilder)
+      .depots(depotBuilder);
 
-      // models
-      .addModel(
+    // models
+    if (b.cachedRoadModel) {
+      builder.addModel(
+        PDPDynamicGraphRoadModel.builderForGraphRm(
+          (ModelBuilder<? extends GraphRoadModel, ? extends RoadUser>) roadModelBuilder)
+          .withAllowVehicleDiversion(true));
+    } else {
+      builder.addModel(
         PDPDynamicGraphRoadModel.builderForDynamicGraphRm(
           (ModelBuilder<? extends DynamicGraphRoadModel, ? extends RoadUser>) roadModelBuilder)
-          .withAllowVehicleDiversion(true))
-
+          .withAllowVehicleDiversion(true));
+    }
+    builder
       .addModel(
         DefaultPDPModel.builder()
           .withTimeWindowPolicy(TimeWindowPolicies.TARDY_ALLOWED));
@@ -898,6 +899,7 @@ public final class DatasetGenerator {
     List<Integer> numberOfShockwaves;
 
     Optional<Supplier<? extends Graph<?>>> graphSup;
+    boolean cachedRoadModel;
 
     Builder() {
       randomSeed = 0L;
@@ -914,6 +916,7 @@ public final class DatasetGenerator {
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
       scenarioLengthMs = DEFAULT_SCENARIO_LENGTH;
       graphSup = Optional.absent();
+      cachedRoadModel = false;
       shockwaveBehaviours = Optional.absent();
       shockwaveRecedingSpeeds = Optional.absent();
       shockwaveExpandingSpeeds = Optional.absent();
@@ -1131,6 +1134,16 @@ public final class DatasetGenerator {
         Supplier<Graph<MultiAttributeData>> supplier) {
       this.graphSup =
         Optional.<Supplier<? extends Graph<?>>>of(supplier);
+      return this;
+    }
+
+    /**
+     * Indicated the road model should cache shortest routes.
+     * @param cached Whether or not the road model should cache.
+     * @return This, as per the builder pattern.return
+     */
+    public Builder setCached(boolean cached) {
+      this.cachedRoadModel = cached;
       return this;
     }
   }

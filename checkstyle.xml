@@ -86,7 +86,7 @@
 				value="(^import|^.*>+.*(>+.*[;\(\{]$|$)|^ +\* +\{@link .*\}$)" />
 		</module>
 		<module name="MethodLength">
-			<property name="max" value="160"/>
+			<property name="max" value="180"/>
 		</module>
 		<!--module name="ParameterNumber"/ -->
 
