@@ -187,18 +187,18 @@ public final class DatasetGenerator {
     } else {
       /*
       LOGGER.info(" - Calculating Longest Travel Time...");
-      
+
       final Graph<MultiAttributeData> graph =
         (Graph<MultiAttributeData>) b.graphSup.get().get();
       double longestTravelTime = 0d;
-      
+
       final Point depot = getCenterMostPoint(graph);
       for (final Point p : graph.getNodes()) {
         final Iterator<Point> path = Graphs
           .shortestPath(graph, depot, p,
             GeomHeuristics.time(VEHICLE_SPEED_KMH))
           .iterator();
-      
+
         double travelTime = 0d;
         Point prev = path.next();
         while (path.hasNext()) {
@@ -207,7 +207,7 @@ public final class DatasetGenerator {
           // final double speed = 30 * 1000;
           final Connection<MultiAttributeData> conn =
             graph.getConnection(prev, cur);
-      
+
           if (conn.data().get().getMaxSpeed().isPresent()) {
             speed = Math.min(conn.data().get().getMaxSpeed().get(),
               VEHICLE_SPEED_KMH);
@@ -220,13 +220,13 @@ public final class DatasetGenerator {
           travelTime += conn.getLength() * 60 * 60 * 1000 / speed;
           // CHECKSTYLE:ON: MagicNumber
           prev = cur;
-      
+
         }
         if (travelTime > longestTravelTime) {
           longestTravelTime = travelTime;
         }
       }
-      
+
       halfDiagTT = (long) longestTravelTime;
       LOGGER.info(" - Longest Travel Time: " + longestTravelTime);
       */
@@ -805,9 +805,10 @@ public final class DatasetGenerator {
                         officeHours);
                     final boolean isInBin = dynamismRangeCenters.get(
                       dynamism) != null;
-                    if (isInBin)
+                    if (isInBin) {
                       System.out
                         .println("Dynamism " + dynamism + " is in bin!");
+                    }
                     return isInBin;
                   }
                 }))

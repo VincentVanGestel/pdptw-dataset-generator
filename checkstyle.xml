@@ -85,7 +85,9 @@
 			<property name="ignorePattern"
 				value="(^import|^.*>+.*(>+.*[;\(\{]$|$)|^ +\* +\{@link .*\}$)" />
 		</module>
-		<module name="MethodLength" />
+		<module name="MethodLength">
+			<property name="max" value="160"/>
+		</module>
 		<!--module name="ParameterNumber"/ -->
 
 
