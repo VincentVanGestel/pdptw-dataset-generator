@@ -76,7 +76,7 @@ abstract class ScenarioCreator implements Callable<GeneratedScenario> {
     final Double dynamismBin = getSettings().getDynamismRangeCenters().get(
       dynamism);
     if (dynamismBin == null) {
-      System.out.println("Dynamism too strict?");
+      System.out.println("Dynamism " + dynamism + " is too strict");
       return null;
     }
 

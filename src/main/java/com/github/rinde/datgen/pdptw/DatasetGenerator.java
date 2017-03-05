@@ -98,6 +98,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -327,27 +328,13 @@ public final class DatasetGenerator {
               .max(AREA_WIDTH)
               .buildUniform();
 
-            // final TimeSeriesGenerator tsg2 =
-            // TimeSeries.filter(createTimeSeriesGenerator(
-            // dynLevel.getKey(), officeHoursLength, numOrders,
-            // numOrdersPerScale, ImmutableMap.<String, String>builder()),
-            // new Predicate<List<Double>>() {
-            // @Override
-            // public boolean apply(@Nullable List<Double> input) {
-            // final double dynamism =
-            // Metrics.measureDynamism(verifyNotNull(input),
-            // builder.scenarioLengthMs);
-            // return set.getDynamismRangeCenters().get(
-            // dynamism) != null;
-            // }
-            // });
-
             final TimeSeriesGenerator tsg2 =
               createTimeSeriesGenerator(
                 dynLevel.getKey(), officeHoursLength, numOrders,
                 numOrdersPerScale, ImmutableMap.<String, String>builder());
             final ScenarioGenerator gen = createGenerator(
-              builder.scenarioLengthMs, urg, scale, tsg2, lg,
+              builder.scenarioLengthMs, officeHoursLength, urg, scale, tsg2,
+              set.getDynamismRangeCenters(), lg,
               builder.graphSup,
               numOrdersPerScale,
               builder.numberOfShockwaves,
@@ -680,8 +667,10 @@ public final class DatasetGenerator {
     throw new IllegalStateException();
   }
 
-  static ScenarioGenerator createGenerator(long scenarioLength,
+  static ScenarioGenerator createGenerator(final long scenarioLength,
+      final long officeHours,
       long urgency, double scale, TimeSeriesGenerator tsg,
+      final ImmutableRangeMap<Double, Double> dynamismRangeCenters,
       LocationGenerator lg,
       Optional<Supplier<? extends Graph<?>>> graphSup,
       int numOrdersPerScale, List<Integer> numberOfShockwaves,
@@ -804,9 +793,24 @@ public final class DatasetGenerator {
       .parcels(
         Parcels.builder()
           .announceTimes(
-            TimeSeries.filter(tsg, TimeSeries.numEventsPredicate(
-              DoubleMath.roundToInt(numOrdersPerScale * scale,
-                RoundingMode.UNNECESSARY))))
+            TimeSeries
+              .filter(TimeSeries.filter(tsg, TimeSeries.numEventsPredicate(
+                DoubleMath.roundToInt(numOrdersPerScale * scale,
+                  RoundingMode.UNNECESSARY))),
+                new Predicate<List<Double>>() {
+                  @Override
+                  public boolean apply(@Nullable List<Double> input) {
+                    final double dynamism =
+                      Metrics.measureDynamism(verifyNotNull(input),
+                        officeHours);
+                    final boolean isInBin = dynamismRangeCenters.get(
+                      dynamism) != null;
+                    if (isInBin)
+                      System.out
+                        .println("Dynamism " + dynamism + " is in bin!");
+                    return isInBin;
+                  }
+                }))
           .pickupDurations(constant(PICKUP_DURATION))
           .deliveryDurations(constant(DELIVERY_DURATION))
           .neededCapacities(constant(0))
