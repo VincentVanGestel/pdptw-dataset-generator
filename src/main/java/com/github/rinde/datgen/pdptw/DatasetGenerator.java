@@ -94,6 +94,7 @@ import com.github.rinde.rinsim.scenario.vanlon15.VanLon15ProblemClass;
 import com.github.rinde.rinsim.util.StochasticSupplier;
 import com.github.rinde.rinsim.util.StochasticSuppliers;
 import com.github.rinde.rinsim.util.TimeWindow;
+import com.github.vincentvangestel.roadmodelext.CachedDynamicGraphRoadModel;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
@@ -114,6 +115,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.SetMultimap;
+import com.google.common.collect.Table;
 import com.google.common.collect.TreeRangeMap;
 import com.google.common.collect.TreeRangeSet;
 import com.google.common.math.DoubleMath;
@@ -697,9 +699,12 @@ public final class DatasetGenerator {
     } else {
       final Point startingLocation =
         getCenterMostPoint(b.graphSup.get().get());
-      if (b.cachedRoadModel) {
+      if (b.cacheSup.isPresent()) {
         roadModelBuilder =
-          RoadModelBuilders.cachedGraph(b.graphSup.get())
+          CachedDynamicGraphRoadModel
+            .builder(ListenableGraph.supplier(
+              (Supplier<? extends Graph<MultiAttributeData>>) b.graphSup.get()),
+              b.cacheSup.get())
             .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
             .withDistanceUnit(SI.KILOMETER);
       } else {
@@ -823,7 +828,7 @@ public final class DatasetGenerator {
       .depots(depotBuilder);
 
     // models
-    if (b.cachedRoadModel) {
+    if (b.cacheSup.isPresent()) {
       builder.addModel(
         PDPDynamicGraphRoadModel.builderForGraphRm(
           (ModelBuilder<? extends GraphRoadModel, ? extends RoadUser>) roadModelBuilder)
@@ -900,7 +905,7 @@ public final class DatasetGenerator {
     List<Integer> numberOfShockwaves;
 
     Optional<Supplier<? extends Graph<?>>> graphSup;
-    boolean cachedRoadModel;
+    Optional<Supplier<Table<Point, Point, List<Point>>>> cacheSup;
 
     Builder() {
       randomSeed = 0L;
@@ -917,7 +922,7 @@ public final class DatasetGenerator {
       scenarioLengthHours = DEFAULT_SCENARIO_HOURS;
       scenarioLengthMs = DEFAULT_SCENARIO_LENGTH;
       graphSup = Optional.absent();
-      cachedRoadModel = false;
+      cacheSup = Optional.absent();
       shockwaveBehaviours = Optional.absent();
       shockwaveRecedingSpeeds = Optional.absent();
       shockwaveExpandingSpeeds = Optional.absent();
@@ -1140,11 +1145,13 @@ public final class DatasetGenerator {
 
     /**
      * Indicated the road model should cache shortest routes.
-     * @param cached Whether or not the road model should cache.
+     * @param cache The supplier for the cache
      * @return This, as per the builder pattern.return
      */
-    public Builder setCached(boolean cached) {
-      this.cachedRoadModel = cached;
+    public Builder withCacheSupplier(
+        Supplier<Table<Point, Point, List<Point>>> cache) {
+      this.cacheSup =
+        Optional.of(cache);
       return this;
     }
   }

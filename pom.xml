@@ -277,6 +277,11 @@
 			<version>2.0.3</version>
 		</dependency>
 		<dependency>
+			<groupId>com.github.vincentvangestel</groupId>
+  			<artifactId>RoadModelExt</artifactId>
+  			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
+		<dependency>
 			<groupId>com.github.rinde</groupId>
 			<artifactId>rinsim-scenario-util</artifactId>
 			<version>${rinsim.version}</version>
