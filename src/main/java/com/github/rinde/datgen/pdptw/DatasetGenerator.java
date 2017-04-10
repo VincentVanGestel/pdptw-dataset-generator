@@ -51,12 +51,12 @@ import org.apache.commons.math3.random.RandomGenerator;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.ISODateTimeFormat;
 
+import com.github.christofluyten.data.RoutingTable;
 import com.github.rinde.rinsim.core.model.ModelBuilder;
 import com.github.rinde.rinsim.core.model.pdp.DefaultPDPModel;
 import com.github.rinde.rinsim.core.model.pdp.Parcel;
 import com.github.rinde.rinsim.core.model.pdp.TimeWindowPolicy.TimeWindowPolicies;
 import com.github.rinde.rinsim.core.model.road.DynamicGraphRoadModel;
-import com.github.rinde.rinsim.core.model.road.GraphRoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModel;
 import com.github.rinde.rinsim.core.model.road.RoadModelBuilders;
 import com.github.rinde.rinsim.core.model.road.RoadUser;
@@ -115,7 +115,6 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.SetMultimap;
-import com.google.common.collect.Table;
 import com.google.common.collect.TreeRangeMap;
 import com.google.common.collect.TreeRangeSet;
 import com.google.common.math.DoubleMath;
@@ -828,17 +827,10 @@ public final class DatasetGenerator {
       .depots(depotBuilder);
 
     // models
-    if (b.cacheSup.isPresent()) {
-      builder.addModel(
-        PDPDynamicGraphRoadModel.builderForGraphRm(
-          (ModelBuilder<? extends GraphRoadModel, ? extends RoadUser>) roadModelBuilder)
-          .withAllowVehicleDiversion(true));
-    } else {
-      builder.addModel(
-        PDPDynamicGraphRoadModel.builderForDynamicGraphRm(
-          (ModelBuilder<? extends DynamicGraphRoadModel, ? extends RoadUser>) roadModelBuilder)
-          .withAllowVehicleDiversion(true));
-    }
+    builder.addModel(
+      PDPDynamicGraphRoadModel.builderForDynamicGraphRm(
+        (ModelBuilder<? extends DynamicGraphRoadModel, ? extends RoadUser>) roadModelBuilder)
+        .withAllowVehicleDiversion(true));
     builder
       .addModel(
         DefaultPDPModel.builder()
@@ -905,7 +897,7 @@ public final class DatasetGenerator {
     List<Integer> numberOfShockwaves;
 
     Optional<Supplier<? extends Graph<?>>> graphSup;
-    Optional<Supplier<Table<Point, Point, List<Point>>>> cacheSup;
+    Optional<Supplier<RoutingTable>> cacheSup;
 
     Builder() {
       randomSeed = 0L;
@@ -1145,13 +1137,13 @@ public final class DatasetGenerator {
 
     /**
      * Indicated the road model should cache shortest routes.
-     * @param cache The supplier for the cache
+     * @param supplier The supplier for the cache
      * @return This, as per the builder pattern.return
      */
     public Builder withCacheSupplier(
-        Supplier<Table<Point, Point, List<Point>>> cache) {
+        Supplier<RoutingTable> supplier) {
       this.cacheSup =
-        Optional.of(cache);
+        Optional.of(supplier);
       return this;
     }
   }
