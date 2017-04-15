@@ -739,12 +739,12 @@ public final class DatasetGenerator {
           .withGraph((Graph<MultiAttributeData>) b.graphSup.get().get())
           .creationTimes(constant(-1L))
           .randomStartConnections()
-          .shockwaveDurations(constant(b.scenarioLengthMs / 2))
+          .shockwaveWaitForRecedeDurations(constant(b.scenarioLengthMs / 2))
           .numberOfShockwaves(
             StochasticSuppliers.constant(b.numberOfShockwaves.get(i)));
         if (b.shockwaveDurations.isPresent()) {
           dynamicSpeedsBuilder
-            .shockwaveDurations(b.shockwaveDurations.get().get(i));
+            .shockwaveWaitForRecedeDurations(b.shockwaveDurations.get().get(i));
         }
         if (b.shockwaveBehaviours.isPresent()) {
           dynamicSpeedsBuilder
