@@ -705,7 +705,8 @@ public final class DatasetGenerator {
               (Supplier<? extends Graph<MultiAttributeData>>) b.graphSup.get()),
               null, b.cachePath.get())
             .withSpeedUnit(NonSI.KILOMETERS_PER_HOUR)
-            .withDistanceUnit(SI.KILOMETER);
+            .withDistanceUnit(SI.KILOMETER)
+            .withModificationCheck(false);
       } else {
         roadModelBuilder =
           RoadModelBuilders
