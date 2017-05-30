@@ -279,7 +279,7 @@
 		<dependency>
 			<groupId>com.github.vincentvangestel</groupId>
   			<artifactId>RoadModelExt</artifactId>
-  			<version>0.0.1-SNAPSHOT</version>
+  			<version>1.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.rinde</groupId>
